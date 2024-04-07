@@ -23,7 +23,7 @@ impl Engine {
                 let account = self.accounts.get_mut(&client_id);
 
                 if let Some(account) = account {
-                    account.withdraw(amount)
+                    account.deposit(tx_id, amount)
                 } else {
                     let mut account = Account::new();
                     account.deposit(tx_id, amount);
