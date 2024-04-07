@@ -17,7 +17,7 @@ fn main() {
     let mut csv_reader = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_path(transactions_csv_path)
-        .unwrap();
+        .expect("Failed to create input csv reader");
 
     let mut engine = Engine::new();
 
@@ -29,5 +29,7 @@ fn main() {
         engine.process_transaction(transaction);
     }
 
-    engine.print_state_csv();
+    engine
+        .print_state_csv()
+        .expect("Failed to print output csv");
 }

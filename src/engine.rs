@@ -1,5 +1,6 @@
 use crate::transaction::Transaction;
 use crate::util::{fixed_point_4_decimal_to_float_str, signed_fixed_point_4_decimal_to_float_str};
+use anyhow::Result;
 use std::collections::HashMap;
 
 pub struct Engine {
@@ -73,11 +74,10 @@ impl Engine {
         }
     }
 
-    pub fn print_state_csv(&self) {
+    pub fn print_state_csv(&self) -> Result<()> {
         let mut wtr = csv::Writer::from_writer(std::io::stdout());
 
-        wtr.write_record(["client", "available", "held", "total", "locked"])
-            .unwrap();
+        wtr.write_record(["client", "available", "held", "total", "locked"])?;
 
         for (client_id, account) in self.accounts.iter() {
             let available_amount =
@@ -93,11 +93,12 @@ impl Engine {
                 held_amount,
                 total_amount,
                 account.locked,
-            ))
-            .unwrap();
+            ))?;
         }
 
-        wtr.flush().unwrap();
+        wtr.flush()?;
+
+        Ok(())
     }
 }
 

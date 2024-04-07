@@ -11,7 +11,7 @@ fn test_sample_transactions() {
             "tests/test_sample_data/sample_transactions.csv",
         ])
         .output()
-        .expect("Failed to execute cargo run");
+        .unwrap();
 
     assert!(output.status.success(), "Cargo run failed");
 
