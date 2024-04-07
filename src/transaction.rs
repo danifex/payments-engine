@@ -1,9 +1,10 @@
 use crate::util::float_str_to_fixed_point_4_decimal;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum TransactionType {
+pub enum RawTransactionType {
     Deposit,
     Withdrawal,
     Dispute,
@@ -11,19 +12,13 @@ pub enum TransactionType {
     Chargeback,
 }
 
-// This could easily be an enum with the variants of TransactionType and enum values that store
-//  only the necessary data (amount would only be a value of Deposit and Withdrawal). Going with
-//  the approach below to take advantage of serde's deserialization. Serde's Enum tagging doesn't
-//  work with csv parsing.
 #[derive(Debug, Deserialize)]
-pub struct Transaction {
+pub struct RawTransaction {
     #[serde(rename = "type")]
-    pub transaction_type: TransactionType,
-    #[serde(rename = "client")]
-    pub client_id: u16,
-    #[serde(rename = "tx")]
-    pub tx_id: u32,
-    #[serde(deserialize_with = "deserialize_fixed_point", rename = "amount")]
+    pub transaction_type: RawTransactionType,
+    pub client: u16,
+    pub tx: u32,
+    #[serde(deserialize_with = "deserialize_fixed_point")]
     pub amount: Option<u64>,
 }
 
@@ -43,9 +38,66 @@ where
         .transpose()
 }
 
+impl RawTransaction {
+    pub fn into_transaction(self) -> Result<Transaction> {
+        match self.transaction_type {
+            RawTransactionType::Deposit => Ok(Transaction::Deposit {
+                client_id: self.client,
+                tx_id: self.tx,
+                amount: self.amount.ok_or(anyhow!("Deposit found without amount"))?,
+            }),
+            RawTransactionType::Withdrawal => Ok(Transaction::Withdrawal {
+                client_id: self.client,
+                tx_id: self.tx,
+                amount: self
+                    .amount
+                    .ok_or(anyhow!("Withdrawal found without amount"))?,
+            }),
+            RawTransactionType::Dispute => Ok(Transaction::Dispute {
+                client_id: self.client,
+                tx_id: self.tx,
+            }),
+            RawTransactionType::Resolve => Ok(Transaction::Resolve {
+                client_id: self.client,
+                tx_id: self.tx,
+            }),
+            RawTransactionType::Chargeback => Ok(Transaction::Chargeback {
+                client_id: self.client,
+                tx_id: self.tx,
+            }),
+        }
+    }
+}
+
+pub(crate) enum Transaction {
+    Deposit {
+        client_id: u16,
+        tx_id: u32,
+        amount: u64,
+    },
+    Withdrawal {
+        client_id: u16,
+        #[allow(dead_code)]
+        tx_id: u32,
+        amount: u64,
+    },
+    Dispute {
+        client_id: u16,
+        tx_id: u32,
+    },
+    Resolve {
+        client_id: u16,
+        tx_id: u32,
+    },
+    Chargeback {
+        client_id: u16,
+        tx_id: u32,
+    },
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::transaction::Transaction;
+    use crate::transaction::RawTransaction;
     use std::io::BufReader;
 
     #[test]
@@ -63,7 +115,8 @@ mod tests {
             .from_reader(BufReader::new(csv.as_bytes()));
 
         for res in csv_reader.deserialize() {
-            let _transaction: Transaction = res.unwrap();
+            let raw_transaction: RawTransaction = res.unwrap();
+            let _transaction = raw_transaction.into_transaction().unwrap();
         }
     }
 
@@ -78,7 +131,8 @@ mod tests {
             .from_reader(BufReader::new(csv.as_bytes()));
 
         for res in csv_reader.deserialize() {
-            let _transaction: Transaction = res.unwrap();
+            let raw_transaction: RawTransaction = res.unwrap();
+            let _transaction = raw_transaction.into_transaction().unwrap();
         }
     }
 }

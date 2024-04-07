@@ -1,4 +1,4 @@
-use crate::transaction::{Transaction, TransactionType};
+use crate::transaction::Transaction;
 use crate::util::{fixed_point_4_decimal_to_float_str, signed_fixed_point_4_decimal_to_float_str};
 use std::collections::HashMap;
 
@@ -14,74 +14,62 @@ impl Engine {
     }
 
     pub fn process_transaction(&mut self, transaction: Transaction) {
-        match transaction.transaction_type {
-            TransactionType::Deposit => self.process_deposit_transaction(transaction),
-            TransactionType::Withdrawal => self.process_withdrawal_transaction(transaction),
-            TransactionType::Dispute => self.process_dispute_transaction(transaction),
-            TransactionType::Resolve => self.process_resolve_transaction(transaction),
-            TransactionType::Chargeback => self.process_chargeback_transaction(transaction),
-        }
-    }
+        match transaction {
+            Transaction::Deposit {
+                client_id,
+                tx_id,
+                amount,
+            } => {
+                let account = self.accounts.get_mut(&client_id);
 
-    fn process_deposit_transaction(&mut self, transaction: Transaction) {
-        debug_assert_eq!(transaction.transaction_type, TransactionType::Deposit);
+                if let Some(account) = account {
+                    account.withdraw(amount)
+                } else {
+                    let mut account = Account::new();
+                    account.deposit(tx_id, amount);
+                    self.accounts.insert(client_id, account);
+                }
+            }
+            Transaction::Withdrawal {
+                client_id, amount, ..
+            } => {
+                let account = self.accounts.get_mut(&client_id);
 
-        let account = self.accounts.get_mut(&transaction.client_id);
+                if let Some(account) = account {
+                    account.withdraw(amount)
+                } else {
+                    eprintln!("An withdrawal failed because the target account couldn't be found")
+                }
+            }
+            Transaction::Dispute { client_id, tx_id } => {
+                let account = self.accounts.get_mut(&client_id);
 
-        if let Some(account) = account {
-            account.withdraw(transaction.amount.unwrap())
-        } else {
-            let mut account = Account::new();
-            account.deposit(transaction.tx_id, transaction.amount.unwrap());
-            self.accounts.insert(transaction.client_id, account);
-        }
-    }
+                if let Some(account) = account {
+                    account.start_dispute(tx_id)
+                } else {
+                    eprintln!("A dispute start failed because the target account couldn't be found")
+                }
+            }
+            Transaction::Resolve { client_id, tx_id } => {
+                let account = self.accounts.get_mut(&client_id);
 
-    fn process_withdrawal_transaction(&mut self, transaction: Transaction) {
-        debug_assert_eq!(transaction.transaction_type, TransactionType::Withdrawal);
+                if let Some(account) = account {
+                    account.resolve_dispute(tx_id)
+                } else {
+                    eprintln!(
+                        "A dispute resolve failed because the target account couldn't be found"
+                    )
+                }
+            }
+            Transaction::Chargeback { client_id, tx_id } => {
+                let account = self.accounts.get_mut(&client_id);
 
-        let account = self.accounts.get_mut(&transaction.client_id);
-
-        if let Some(account) = account {
-            account.withdraw(transaction.amount.unwrap())
-        } else {
-            eprintln!("An withdrawal failed because the target account couldn't be found")
-        }
-    }
-
-    fn process_dispute_transaction(&mut self, transaction: Transaction) {
-        debug_assert_eq!(transaction.transaction_type, TransactionType::Dispute);
-
-        let account = self.accounts.get_mut(&transaction.client_id);
-
-        if let Some(account) = account {
-            account.start_dispute(transaction.tx_id)
-        } else {
-            eprintln!("A dispute start failed because the target account couldn't be found")
-        }
-    }
-
-    fn process_resolve_transaction(&mut self, transaction: Transaction) {
-        debug_assert_eq!(transaction.transaction_type, TransactionType::Resolve);
-
-        let account = self.accounts.get_mut(&transaction.client_id);
-
-        if let Some(account) = account {
-            account.resolve_dispute(transaction.tx_id)
-        } else {
-            eprintln!("A dispute resolve failed because the target account couldn't be found")
-        }
-    }
-
-    fn process_chargeback_transaction(&mut self, transaction: Transaction) {
-        debug_assert_eq!(transaction.transaction_type, TransactionType::Chargeback);
-
-        let account = self.accounts.get_mut(&transaction.client_id);
-
-        if let Some(account) = account {
-            account.chargeback(transaction.tx_id)
-        } else {
-            eprintln!("A chargeback failed because the target account couldn't be found")
+                if let Some(account) = account {
+                    account.chargeback(tx_id)
+                } else {
+                    eprintln!("A chargeback failed because the target account couldn't be found")
+                }
+            }
         }
     }
 

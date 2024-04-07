@@ -1,5 +1,5 @@
 use crate::engine::Engine;
-use crate::transaction::Transaction;
+use crate::transaction::RawTransaction;
 use std::env;
 
 mod engine;
@@ -22,13 +22,14 @@ fn main() {
     let mut engine = Engine::new();
 
     for res in csv_reader.deserialize() {
-        let transaction: Transaction = match res {
+        let raw_transaction: RawTransaction = match res {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("Warning: Invalid row found in the provided csv: {e}");
                 continue;
             }
         };
+        let transaction = raw_transaction.into_transaction().unwrap();
         engine.process_transaction(transaction);
     }
 
