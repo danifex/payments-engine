@@ -1,0 +1,16 @@
+[package]
+name = "payments-engine"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "sample_data",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.197", features = ["derive"] }
+csv = "1.3.0"
+anyhow = "1.0.81"
