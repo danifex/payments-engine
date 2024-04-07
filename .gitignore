@@ -1,3 +1,5 @@
 /target
-/sample_data/target
+/sample-data-generator/target
+/sample-data-generator/transactions.csv
 .idea
+output.csv
