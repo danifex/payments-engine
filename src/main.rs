@@ -22,14 +22,10 @@ fn main() {
     let mut engine = Engine::new();
 
     for res in csv_reader.deserialize() {
-        let raw_transaction: RawTransaction = match res {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("Warning: Invalid row found in the provided csv: {e}");
-                continue;
-            }
-        };
-        let transaction = raw_transaction.into_transaction().unwrap();
+        let raw_transaction: RawTransaction = res.expect("Invalid row in provided csv");
+        let transaction = raw_transaction
+            .into_transaction()
+            .expect("Invalid row in provided csv");
         engine.process_transaction(transaction);
     }
 
