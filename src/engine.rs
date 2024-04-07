@@ -26,46 +26,63 @@ impl Engine {
     fn process_deposit_transaction(&mut self, transaction: Transaction) {
         debug_assert_eq!(transaction.transaction_type, TransactionType::Deposit);
 
-        self.accounts
-            .entry(transaction.client_id)
-            .and_modify(|a| a.deposit(transaction.tx_id, transaction.amount.unwrap()))
-            .or_insert({
-                let mut account = Account::new();
-                account.deposit(transaction.tx_id, transaction.amount.unwrap());
-                account
-            });
+        let account = self.accounts.get_mut(&transaction.client_id);
+
+        if let Some(account) = account {
+            account.withdraw(transaction.amount.unwrap())
+        } else {
+            let mut account = Account::new();
+            account.deposit(transaction.tx_id, transaction.amount.unwrap());
+            self.accounts.insert(transaction.client_id, account);
+        }
     }
 
     fn process_withdrawal_transaction(&mut self, transaction: Transaction) {
         debug_assert_eq!(transaction.transaction_type, TransactionType::Withdrawal);
 
-        self.accounts
-            .entry(transaction.client_id)
-            .and_modify(|a| a.withdraw(transaction.amount.unwrap()));
+        let account = self.accounts.get_mut(&transaction.client_id);
+
+        if let Some(account) = account {
+            account.withdraw(transaction.amount.unwrap())
+        } else {
+            eprintln!("An withdrawal failed because the target account couldn't be found")
+        }
     }
 
     fn process_dispute_transaction(&mut self, transaction: Transaction) {
         debug_assert_eq!(transaction.transaction_type, TransactionType::Dispute);
 
-        self.accounts
-            .entry(transaction.client_id)
-            .and_modify(|a| a.start_dispute(transaction.tx_id));
+        let account = self.accounts.get_mut(&transaction.client_id);
+
+        if let Some(account) = account {
+            account.start_dispute(transaction.tx_id)
+        } else {
+            eprintln!("A dispute start failed because the target account couldn't be found")
+        }
     }
 
     fn process_resolve_transaction(&mut self, transaction: Transaction) {
         debug_assert_eq!(transaction.transaction_type, TransactionType::Resolve);
 
-        self.accounts
-            .entry(transaction.client_id)
-            .and_modify(|a| a.resolve_dispute(transaction.tx_id));
+        let account = self.accounts.get_mut(&transaction.client_id);
+
+        if let Some(account) = account {
+            account.resolve_dispute(transaction.tx_id)
+        } else {
+            eprintln!("A dispute resolve failed because the target account couldn't be found")
+        }
     }
 
     fn process_chargeback_transaction(&mut self, transaction: Transaction) {
         debug_assert_eq!(transaction.transaction_type, TransactionType::Chargeback);
 
-        self.accounts
-            .entry(transaction.client_id)
-            .and_modify(|a| a.chargeback(transaction.tx_id));
+        let account = self.accounts.get_mut(&transaction.client_id);
+
+        if let Some(account) = account {
+            account.chargeback(transaction.tx_id)
+        } else {
+            eprintln!("A chargeback failed because the target account couldn't be found")
+        }
     }
 
     pub fn print_state_csv(&self) {
@@ -115,6 +132,7 @@ impl Account {
 
     fn deposit(&mut self, tx_id: u32, amount: u64) {
         if self.locked {
+            eprintln!("A deposit failed because the target account is locked");
             return;
         }
 
@@ -131,19 +149,18 @@ impl Account {
 
     fn withdraw(&mut self, amount: u64) {
         if self.locked {
+            eprintln!("An withdrawal failed because the target account is locked");
             return;
         }
 
         if self.available_amount >= amount as i64 {
             self.available_amount -= amount as i64
+        } else {
+            eprintln!("An withdrawal failed because there wasn't enough balance");
         }
     }
 
     fn start_dispute(&mut self, tx_id: u32) {
-        if self.locked {
-            return;
-        }
-
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -151,15 +168,23 @@ impl Account {
                 deposit.state = DepositState::InDispute;
                 self.available_amount -= deposit.amount as i64;
                 self.held_amount += deposit.amount;
+            } else {
+                eprintln!(
+                    "A dispute start failed because the referenced deposit was already \
+                chargedback or is currently in an active dispute - tx_id: {tx_id} \
+                - deposit state: {:?}",
+                    deposit.state
+                );
             }
+        } else {
+            eprintln!(
+                "A dispute start failed because the referenced deposit couldn't be found \
+            - tx_id: {tx_id}"
+            );
         }
     }
 
     fn resolve_dispute(&mut self, tx_id: u32) {
-        if self.locked {
-            return;
-        }
-
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -167,15 +192,22 @@ impl Account {
                 deposit.state = DepositState::Valid;
                 self.available_amount += deposit.amount as i64;
                 self.held_amount -= deposit.amount;
+            } else {
+                eprintln!(
+                    "A dispute resolve failed because the referenced deposit wasn't in an \
+                active dispute - tx_id: {tx_id} - deposit state: {:?}",
+                    deposit.state
+                );
             }
+        } else {
+            eprintln!(
+                "A dispute resolve failed because the referenced deposit couldn't be found \
+            - tx_id: {tx_id}"
+            );
         }
     }
 
     fn chargeback(&mut self, tx_id: u32) {
-        if self.locked {
-            return;
-        }
-
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -183,7 +215,18 @@ impl Account {
                 deposit.state = DepositState::ChargedBack;
                 self.held_amount -= deposit.amount;
                 self.locked = true;
+            } else {
+                eprintln!(
+                    "A chargeback failed because the referenced deposit wasn't in an active \
+                dispute - tx_id: {tx_id} - deposit state: {:?}",
+                    deposit.state
+                );
             }
+        } else {
+            eprintln!(
+                "A chargeback failed because the referenced deposit couldn't be found \
+            - tx_id: {tx_id}"
+            );
         }
     }
 }
@@ -193,7 +236,7 @@ struct Deposit {
     state: DepositState,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum DepositState {
     Valid,
     InDispute,
