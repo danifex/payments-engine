@@ -17,10 +17,10 @@ fn main() {
         for d in 0..N_DEPOSITS_PER_CLIENT {
             wtr.serialize(("deposit", client_id, tx_id_count, 100.0))
                 .unwrap();
-            tx_id_count += 1;
             if d < N_DISPUTES_PER_CLIENT {
                 disputes_to_create.push((client_id, tx_id_count));
             }
+            tx_id_count += 1;
         }
     }
 
