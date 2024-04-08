@@ -54,6 +54,10 @@ mod tests {
         assert_eq!(fixed_point_4_decimal_to_float_str(9_999), "0.9999");
         assert_eq!(fixed_point_4_decimal_to_float_str(10_000), "1.0000");
         assert_eq!(fixed_point_4_decimal_to_float_str(10_001), "1.0001");
+        assert_eq!(
+            fixed_point_4_decimal_to_float_str(10_000_000_001),
+            "1000000.0001"
+        );
     }
 
     #[test]
@@ -63,6 +67,10 @@ mod tests {
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(9_999), "0.9999");
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(10_000), "1.0000");
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(10_001), "1.0001");
+        assert_eq!(
+            signed_fixed_point_4_decimal_to_float_str(10_000_000_001),
+            "1000000.0001"
+        );
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(-0), "0.0000");
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(-1), "-0.0001");
         assert_eq!(signed_fixed_point_4_decimal_to_float_str(-9_999), "-0.9999");
@@ -73,6 +81,10 @@ mod tests {
         assert_eq!(
             signed_fixed_point_4_decimal_to_float_str(-10_001),
             "-1.0001"
+        );
+        assert_eq!(
+            signed_fixed_point_4_decimal_to_float_str(-10_000_000_001),
+            "-1000000.0001"
         );
     }
 
@@ -88,6 +100,10 @@ mod tests {
         assert_eq!(
             float_str_to_fixed_point_4_decimal("1.0001").unwrap(),
             10_001
+        );
+        assert_eq!(
+            float_str_to_fixed_point_4_decimal("1000000.0001").unwrap(),
+            10_000_000_001
         );
 
         // Test extra digits in fractional part
