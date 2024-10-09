@@ -1,5 +1,5 @@
 use crate::util::float_str_to_fixed_point_4_decimal;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, ensure, Result};
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -38,37 +38,54 @@ where
         .transpose()
 }
 
-impl RawTransaction {
-    pub fn into_transaction(self) -> Result<Transaction> {
-        match self.transaction_type {
+impl TryFrom<RawTransaction> for Transaction {
+    type Error = anyhow::Error;
+
+    fn try_from(value: RawTransaction) -> Result<Self> {
+        match value.transaction_type {
             RawTransactionType::Deposit => Ok(Transaction::Deposit {
-                client_id: self.client,
-                tx_id: self.tx,
-                amount: self.amount.ok_or(anyhow!("Deposit found without amount"))?,
+                client_id: value.client,
+                tx_id: value.tx,
+                amount: value
+                    .amount
+                    .ok_or(anyhow!("Deposit found without amount"))?,
             }),
             RawTransactionType::Withdrawal => Ok(Transaction::Withdrawal {
-                client_id: self.client,
-                tx_id: self.tx,
-                amount: self
+                client_id: value.client,
+                tx_id: value.tx,
+                amount: value
                     .amount
                     .ok_or(anyhow!("Withdrawal found without amount"))?,
             }),
-            RawTransactionType::Dispute => Ok(Transaction::Dispute {
-                client_id: self.client,
-                tx_id: self.tx,
-            }),
-            RawTransactionType::Resolve => Ok(Transaction::Resolve {
-                client_id: self.client,
-                tx_id: self.tx,
-            }),
-            RawTransactionType::Chargeback => Ok(Transaction::Chargeback {
-                client_id: self.client,
-                tx_id: self.tx,
-            }),
+            RawTransactionType::Dispute => {
+                ensure!(value.amount.is_none(), anyhow!("Dispute found with amount"));
+                Ok(Transaction::Dispute {
+                    client_id: value.client,
+                    tx_id: value.tx,
+                })
+            }
+            RawTransactionType::Resolve => {
+                ensure!(value.amount.is_none(), anyhow!("Resolve found with amount"));
+                Ok(Transaction::Resolve {
+                    client_id: value.client,
+                    tx_id: value.tx,
+                })
+            }
+            RawTransactionType::Chargeback => {
+                ensure!(
+                    value.amount.is_none(),
+                    anyhow!("Chargeback found with amount")
+                );
+                Ok(Transaction::Chargeback {
+                    client_id: value.client,
+                    tx_id: value.tx,
+                })
+            }
         }
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum Transaction {
     Deposit {
         client_id: u16,
@@ -97,7 +114,7 @@ pub(crate) enum Transaction {
 
 #[cfg(test)]
 mod tests {
-    use crate::transaction::RawTransaction;
+    use crate::transaction::{RawTransaction, RawTransactionType, Transaction};
     use std::io::BufReader;
 
     #[test]
@@ -116,7 +133,7 @@ mod tests {
 
         for res in csv_reader.deserialize() {
             let raw_transaction: RawTransaction = res.unwrap();
-            let _transaction = raw_transaction.into_transaction().unwrap();
+            let _transaction: Transaction = raw_transaction.try_into().unwrap();
         }
     }
 
@@ -132,7 +149,39 @@ mod tests {
 
         for res in csv_reader.deserialize() {
             let raw_transaction: RawTransaction = res.unwrap();
-            let _transaction = raw_transaction.into_transaction().unwrap();
+            let _transaction: Transaction = raw_transaction.try_into().unwrap();
         }
+    }
+
+    #[test]
+    fn test_deposit_without_amount() {
+        let raw = RawTransaction {
+            transaction_type: RawTransactionType::Deposit,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        let result = Transaction::try_from(raw);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Deposit found without amount"
+        );
+    }
+
+    #[test]
+    fn test_withdrawal_without_amount() {
+        let raw = RawTransaction {
+            transaction_type: RawTransactionType::Withdrawal,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        let result = Transaction::try_from(raw);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Withdrawal found without amount"
+        );
     }
 }

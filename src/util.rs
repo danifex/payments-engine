@@ -21,6 +21,7 @@ fn get_sign_prefix(value: i64) -> &'static str {
 }
 
 pub fn float_str_to_fixed_point_4_decimal(value: &str) -> Result<u64> {
+    let value = value.trim();
     let (integer, fractional) = match value.split_once('.') {
         None => (value, ""),
         Some((p, s)) => (p, s),
@@ -119,5 +120,15 @@ mod tests {
         // Test correct padding
         assert_eq!(float_str_to_fixed_point_4_decimal("0.99").unwrap(), 9_900);
         assert_eq!(float_str_to_fixed_point_4_decimal("0.990").unwrap(), 9_900);
+
+        // Test whitespace handling
+        assert_eq!(
+            float_str_to_fixed_point_4_decimal(" 1.0001 ").unwrap(),
+            10_001
+        );
+
+        // Test error cases
+        assert!(float_str_to_fixed_point_4_decimal("").is_err());
+        assert!(float_str_to_fixed_point_4_decimal("abc").is_err());
     }
 }

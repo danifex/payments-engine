@@ -1,60 +1,66 @@
 use crate::transaction::Transaction;
 use crate::util::{fixed_point_4_decimal_to_float_str, signed_fixed_point_4_decimal_to_float_str};
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Engine {
     accounts: HashMap<u16, Account>,
+    transactions: HashSet<u32>,
 }
 
 impl Engine {
     pub fn new() -> Self {
         Self {
             accounts: HashMap::new(),
+            transactions: HashSet::new(),
         }
     }
 
     pub fn process_transaction(&mut self, transaction: Transaction) {
+        // Check for tx_id uniqueness
+        match transaction {
+            Transaction::Deposit { tx_id, .. } | Transaction::Withdrawal { tx_id, .. } => {
+                if !self.transactions.insert(tx_id) {
+                    eprintln!(
+                        "A transaction failed because it had a duplicate tx_id: {}",
+                        tx_id
+                    );
+                    return;
+                }
+            }
+            Transaction::Dispute { .. }
+            | Transaction::Resolve { .. }
+            | Transaction::Chargeback { .. } => {}
+        }
+
+        // Process transaction
         match transaction {
             Transaction::Deposit {
                 client_id,
                 tx_id,
                 amount,
             } => {
-                let account = self.accounts.get_mut(&client_id);
-
-                if let Some(account) = account {
-                    account.deposit(tx_id, amount)
-                } else {
-                    let mut account = Account::new();
-                    account.deposit(tx_id, amount);
-                    self.accounts.insert(client_id, account);
-                }
+                let account = self.accounts.entry(client_id).or_insert_with(Account::new);
+                account.deposit(tx_id, amount);
             }
             Transaction::Withdrawal {
                 client_id, amount, ..
             } => {
-                let account = self.accounts.get_mut(&client_id);
-
-                if let Some(account) = account {
+                if let Some(account) = self.accounts.get_mut(&client_id) {
                     account.withdraw(amount)
                 } else {
                     eprintln!("An withdrawal failed because the target account couldn't be found")
                 }
             }
             Transaction::Dispute { client_id, tx_id } => {
-                let account = self.accounts.get_mut(&client_id);
-
-                if let Some(account) = account {
+                if let Some(account) = self.accounts.get_mut(&client_id) {
                     account.start_dispute(tx_id)
                 } else {
                     eprintln!("A dispute start failed because the target account couldn't be found")
                 }
             }
             Transaction::Resolve { client_id, tx_id } => {
-                let account = self.accounts.get_mut(&client_id);
-
-                if let Some(account) = account {
+                if let Some(account) = self.accounts.get_mut(&client_id) {
                     account.resolve_dispute(tx_id)
                 } else {
                     eprintln!(
@@ -63,9 +69,7 @@ impl Engine {
                 }
             }
             Transaction::Chargeback { client_id, tx_id } => {
-                let account = self.accounts.get_mut(&client_id);
-
-                if let Some(account) = account {
+                if let Some(account) = self.accounts.get_mut(&client_id) {
                     account.chargeback(tx_id)
                 } else {
                     eprintln!("A chargeback failed because the target account couldn't be found")
@@ -153,17 +157,20 @@ impl Account {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
-            if deposit.state == DepositState::Valid {
-                deposit.state = DepositState::InDispute;
-                self.available_amount -= deposit.amount as i64;
-                self.held_amount += deposit.amount;
-            } else {
-                eprintln!(
-                    "A dispute start failed because the referenced deposit was already \
+            match deposit.state {
+                DepositState::Valid => {
+                    deposit.state = DepositState::InDispute;
+                    self.available_amount -= deposit.amount as i64;
+                    self.held_amount += deposit.amount;
+                }
+                DepositState::InDispute | DepositState::ChargedBack => {
+                    eprintln!(
+                        "A dispute start failed because the referenced deposit was already \
                 chargedback or is currently in an active dispute - tx_id: {tx_id} \
                 - deposit state: {:?}",
-                    deposit.state
-                );
+                        deposit.state
+                    );
+                }
             }
         } else {
             eprintln!(
@@ -177,16 +184,19 @@ impl Account {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
-            if deposit.state == DepositState::InDispute {
-                deposit.state = DepositState::Valid;
-                self.available_amount += deposit.amount as i64;
-                self.held_amount -= deposit.amount;
-            } else {
-                eprintln!(
-                    "A dispute resolve failed because the referenced deposit wasn't in an \
+            match deposit.state {
+                DepositState::InDispute => {
+                    deposit.state = DepositState::Valid;
+                    self.available_amount += deposit.amount as i64;
+                    self.held_amount -= deposit.amount;
+                }
+                DepositState::ChargedBack | DepositState::Valid => {
+                    eprintln!(
+                        "A dispute resolve failed because the referenced deposit wasn't in an \
                 active dispute - tx_id: {tx_id} - deposit state: {:?}",
-                    deposit.state
-                );
+                        deposit.state
+                    );
+                }
             }
         } else {
             eprintln!(
@@ -200,16 +210,19 @@ impl Account {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
-            if deposit.state == DepositState::InDispute {
-                deposit.state = DepositState::ChargedBack;
-                self.held_amount -= deposit.amount;
-                self.locked = true;
-            } else {
-                eprintln!(
-                    "A chargeback failed because the referenced deposit wasn't in an active \
+            match deposit.state {
+                DepositState::InDispute => {
+                    deposit.state = DepositState::ChargedBack;
+                    self.held_amount -= deposit.amount;
+                    self.locked = true;
+                }
+                DepositState::ChargedBack | DepositState::Valid => {
+                    eprintln!(
+                        "A chargeback failed because the referenced deposit wasn't in an active \
                 dispute - tx_id: {tx_id} - deposit state: {:?}",
-                    deposit.state
-                );
+                        deposit.state
+                    );
+                }
             }
         } else {
             eprintln!(

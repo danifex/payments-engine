@@ -12,7 +12,7 @@ fn main() {
         panic!("Correct usage: `cargo run -- <transactions_csv_file>`");
     }
 
-    let transactions_csv_path = args[1].as_str();
+    let transactions_csv_path = &args[1];
 
     let mut csv_reader = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
@@ -21,12 +21,16 @@ fn main() {
 
     let mut engine = Engine::new();
 
-    for res in csv_reader.deserialize() {
-        let raw_transaction: RawTransaction = res.expect("Invalid row in provided csv");
-        let transaction = raw_transaction
-            .into_transaction()
-            .expect("Invalid row in provided csv");
-        engine.process_transaction(transaction);
+    for result in csv_reader.deserialize::<RawTransaction>() {
+        match result.map(TryInto::try_into) {
+            Ok(Ok(t)) => engine.process_transaction(t),
+            Ok(Err(e)) => {
+                eprintln!("Invalid row in provided csv: {e}");
+            }
+            Err(e) => {
+                eprintln!("Invalid row in provided csv: {e}");
+            }
+        }
     }
 
     engine

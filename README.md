@@ -55,15 +55,17 @@ Multiple strategies ensure the engine's correctness:
 
 While generally safe, the engine may panic under certain conditions:
 
-* Complications with the input CSV file:
-    * Inability to read the file
-    * Incorrect formatting, such as missing columns or invalid values
+* Incorrect number of arguments provided
+* Issues with reading the input CSV file
 * Issues with writing the output CSV to stdout
+* Overflow when handling very large transaction amounts (see next section, which
+  covers [Casts and overflows](#casts-and-overflows))
 
 Potential panic-resulting calls are confined to the body of `main()`. Simple error handling using `anyhow` is used to
 propagate errors up to `main()`.
 
-Any transactions that cannot be processed (e.g. not enough funds, chargeback of non-disputed deposit, etc) are simply
+Any transactions that cannot be processed (e.g. invalid, not enough funds, chargeback of non-disputed deposit, etc) are
+simply
 ignored and an error is printed into `stderr`.
 
 #### Casts and overflows
