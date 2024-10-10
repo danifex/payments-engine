@@ -1,7 +1,8 @@
 use crate::transaction::Transaction;
 use crate::util::{fixed_point_4_decimal_to_float_str, signed_fixed_point_4_decimal_to_float_str};
-use anyhow::Result;
+use anyhow::{anyhow, bail, ensure, Result};
 use std::collections::{HashMap, HashSet};
+use std::ops::Not;
 
 pub struct Engine {
     accounts: HashMap<u16, Account>,
@@ -16,17 +17,14 @@ impl Engine {
         }
     }
 
-    pub fn process_transaction(&mut self, transaction: Transaction) {
+    pub fn process_transaction(&mut self, transaction: Transaction) -> Result<()> {
         // Check for tx_id uniqueness
         match transaction {
             Transaction::Deposit { tx_id, .. } | Transaction::Withdrawal { tx_id, .. } => {
-                if !self.transactions.insert(tx_id) {
-                    eprintln!(
-                        "A transaction failed because it had a duplicate tx_id: {}",
-                        tx_id
-                    );
-                    return;
-                }
+                ensure!(
+                    self.transactions.insert(tx_id),
+                    anyhow!("A transaction failed because it had a duplicate tx_id: {tx_id}")
+                );
             }
             Transaction::Dispute { .. }
             | Transaction::Resolve { .. }
@@ -41,41 +39,40 @@ impl Engine {
                 amount,
             } => {
                 let account = self.accounts.entry(client_id).or_insert_with(Account::new);
-                account.deposit(tx_id, amount);
+                account.deposit(tx_id, amount)?;
             }
             Transaction::Withdrawal {
                 client_id, amount, ..
             } => {
                 if let Some(account) = self.accounts.get_mut(&client_id) {
-                    account.withdraw(amount)
+                    account.withdraw(amount)?
                 } else {
-                    eprintln!("An withdrawal failed because the target account couldn't be found")
+                    bail!("An withdrawal failed because the target account couldn't be found")
                 }
             }
             Transaction::Dispute { client_id, tx_id } => {
                 if let Some(account) = self.accounts.get_mut(&client_id) {
-                    account.start_dispute(tx_id)
+                    account.start_dispute(tx_id)?
                 } else {
-                    eprintln!("A dispute start failed because the target account couldn't be found")
+                    bail!("A dispute start failed because the target account couldn't be found")
                 }
             }
             Transaction::Resolve { client_id, tx_id } => {
                 if let Some(account) = self.accounts.get_mut(&client_id) {
-                    account.resolve_dispute(tx_id)
+                    account.resolve_dispute(tx_id)?
                 } else {
-                    eprintln!(
-                        "A dispute resolve failed because the target account couldn't be found"
-                    )
+                    bail!("A dispute resolve failed because the target account couldn't be found")
                 }
             }
             Transaction::Chargeback { client_id, tx_id } => {
                 if let Some(account) = self.accounts.get_mut(&client_id) {
-                    account.chargeback(tx_id)
+                    account.chargeback(tx_id)?
                 } else {
-                    eprintln!("A chargeback failed because the target account couldn't be found")
+                    bail!("A chargeback failed because the target account couldn't be found")
                 }
             }
-        }
+        };
+        Ok(())
     }
 
     pub fn print_state_csv(&self) -> Result<()> {
@@ -123,11 +120,11 @@ impl Account {
         }
     }
 
-    fn deposit(&mut self, tx_id: u32, amount: u64) {
-        if self.locked {
-            eprintln!("A deposit failed because the target account is locked");
-            return;
-        }
+    fn deposit(&mut self, tx_id: u32, amount: u64) -> Result<()> {
+        ensure!(
+            self.locked.not(),
+            anyhow!("A deposit failed because the target account is locked")
+        );
 
         self.deposits.insert(
             tx_id,
@@ -138,22 +135,24 @@ impl Account {
         );
 
         self.available_amount += amount as i64;
+        Ok(())
     }
 
-    fn withdraw(&mut self, amount: u64) {
-        if self.locked {
-            eprintln!("An withdrawal failed because the target account is locked");
-            return;
-        }
+    fn withdraw(&mut self, amount: u64) -> Result<()> {
+        ensure!(
+            self.locked.not(),
+            anyhow!("An withdrawal failed because the target account is locked")
+        );
 
         if self.available_amount >= amount as i64 {
             self.available_amount -= amount as i64
         } else {
-            eprintln!("An withdrawal failed because there wasn't enough balance");
+            bail!("An withdrawal failed because there wasn't enough balance");
         }
+        Ok(())
     }
 
-    fn start_dispute(&mut self, tx_id: u32) {
+    fn start_dispute(&mut self, tx_id: u32) -> Result<()> {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -164,23 +163,24 @@ impl Account {
                     self.held_amount += deposit.amount;
                 }
                 DepositState::InDispute | DepositState::ChargedBack => {
-                    eprintln!(
+                    bail!(
                         "A dispute start failed because the referenced deposit was already \
                 chargedback or is currently in an active dispute - tx_id: {tx_id} \
                 - deposit state: {:?}",
                         deposit.state
-                    );
+                    )
                 }
             }
         } else {
-            eprintln!(
+            bail!(
                 "A dispute start failed because the referenced deposit couldn't be found \
             - tx_id: {tx_id}"
-            );
+            )
         }
+        Ok(())
     }
 
-    fn resolve_dispute(&mut self, tx_id: u32) {
+    fn resolve_dispute(&mut self, tx_id: u32) -> Result<()> {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -191,22 +191,23 @@ impl Account {
                     self.held_amount -= deposit.amount;
                 }
                 DepositState::ChargedBack | DepositState::Valid => {
-                    eprintln!(
+                    bail!(
                         "A dispute resolve failed because the referenced deposit wasn't in an \
                 active dispute - tx_id: {tx_id} - deposit state: {:?}",
                         deposit.state
-                    );
+                    )
                 }
             }
         } else {
-            eprintln!(
+            bail!(
                 "A dispute resolve failed because the referenced deposit couldn't be found \
             - tx_id: {tx_id}"
-            );
+            )
         }
+        Ok(())
     }
 
-    fn chargeback(&mut self, tx_id: u32) {
+    fn chargeback(&mut self, tx_id: u32) -> Result<()> {
         let deposit = self.deposits.get_mut(&tx_id);
 
         if let Some(deposit) = deposit {
@@ -217,19 +218,20 @@ impl Account {
                     self.locked = true;
                 }
                 DepositState::ChargedBack | DepositState::Valid => {
-                    eprintln!(
+                    bail!(
                         "A chargeback failed because the referenced deposit wasn't in an active \
                 dispute - tx_id: {tx_id} - deposit state: {:?}",
                         deposit.state
-                    );
+                    )
                 }
             }
         } else {
-            eprintln!(
+            bail!(
                 "A chargeback failed because the referenced deposit couldn't be found \
             - tx_id: {tx_id}"
-            );
+            )
         }
+        Ok(())
     }
 }
 
@@ -259,46 +261,46 @@ mod tests {
         assert!(account.deposits.is_empty());
 
         // Make 2 deposits totalling 60
-        account.deposit(1, 20);
-        account.deposit(2, 40);
+        account.deposit(1, 20).unwrap();
+        account.deposit(2, 40).unwrap();
         assert_eq!(account.available_amount, 60);
         assert_eq!(account.held_amount, 0);
 
         // Check disputing tx 1
-        account.start_dispute(1);
+        account.start_dispute(1).unwrap();
         assert_eq!(account.available_amount, 40);
         assert_eq!(account.held_amount, 20);
 
         // Check resolving tx 1
-        account.resolve_dispute(1);
+        account.resolve_dispute(1).unwrap();
         assert_eq!(account.available_amount, 60);
         assert_eq!(account.held_amount, 0);
 
-        // Check dispute can be started again + double dispute is fine
-        account.start_dispute(1);
-        account.start_dispute(1);
+        // Check dispute can be started again + can't dispute same tx again
+        account.start_dispute(1).unwrap();
+        assert!(account.start_dispute(1).is_err());
         assert_eq!(account.available_amount, 40);
         assert_eq!(account.held_amount, 20);
 
         // Check having multiple in-progress disputes
-        account.start_dispute(2);
+        account.start_dispute(2).unwrap();
         assert_eq!(account.available_amount, 0);
         assert_eq!(account.held_amount, 60);
 
         // Resolve all disputes
-        account.resolve_dispute(1);
-        account.resolve_dispute(2);
+        account.resolve_dispute(1).unwrap();
+        account.resolve_dispute(2).unwrap();
         assert_eq!(account.available_amount, 60);
         assert_eq!(account.held_amount, 0);
 
-        // Chargeback non disputed tx does nothing
-        account.chargeback(1);
+        // Chargeback non disputed tx returns error
+        assert!(account.chargeback(1).is_err());
         assert_eq!(account.available_amount, 60);
         assert_eq!(account.held_amount, 0);
 
         // Check chargeback
-        account.start_dispute(1);
-        account.chargeback(1);
+        account.start_dispute(1).unwrap();
+        account.chargeback(1).unwrap();
         assert_eq!(account.available_amount, 40);
         assert_eq!(account.held_amount, 0);
         assert!(account.locked);
@@ -307,32 +309,32 @@ mod tests {
     #[test]
     fn test_account_chargeback_after_withdrawal_flow() {
         let mut account = Account::new();
-        account.deposit(1, 100);
-        account.deposit(2, 50);
+        account.deposit(1, 100).unwrap();
+        account.deposit(2, 50).unwrap();
         assert_eq!(account.available_amount, 150);
         assert_eq!(account.held_amount, 0);
 
-        account.withdraw(100);
+        account.withdraw(100).unwrap();
         assert_eq!(account.available_amount, 50);
         assert_eq!(account.held_amount, 0);
 
-        account.start_dispute(1);
+        account.start_dispute(1).unwrap();
         assert_eq!(account.available_amount, -50);
         assert_eq!(account.held_amount, 100);
 
-        account.deposit(3, 25);
+        account.deposit(3, 25).unwrap();
         assert_eq!(account.available_amount, -25);
         assert_eq!(account.held_amount, 100);
 
-        account.start_dispute(3);
+        account.start_dispute(3).unwrap();
         assert_eq!(account.available_amount, -50);
         assert_eq!(account.held_amount, 125);
 
-        account.resolve_dispute(3);
+        account.resolve_dispute(3).unwrap();
         assert_eq!(account.available_amount, -25);
         assert_eq!(account.held_amount, 100);
 
-        account.chargeback(1);
+        account.chargeback(1).unwrap();
         assert_eq!(account.available_amount, -25);
         assert_eq!(account.held_amount, 0);
         assert!(account.locked);

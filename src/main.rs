@@ -22,14 +22,19 @@ fn main() {
     let mut engine = Engine::new();
 
     for result in csv_reader.deserialize::<RawTransaction>() {
-        match result.map(TryInto::try_into) {
-            Ok(Ok(t)) => engine.process_transaction(t),
+        let transaction = match result.map(TryInto::try_into) {
+            Ok(Ok(t)) => t,
             Ok(Err(e)) => {
                 eprintln!("Invalid row in provided csv: {e}");
+                continue;
             }
             Err(e) => {
                 eprintln!("Invalid row in provided csv: {e}");
+                continue;
             }
+        };
+        if let Err(e) = engine.process_transaction(transaction) {
+            eprintln!("Engine failed to process transaction: {e}")
         }
     }
 
